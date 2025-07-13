@@ -13,6 +13,18 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Union
 
 class CompareFile():
+    class FileStatus:
+        FOUND_EXACT_MATCH = 'FOUND_EXACT_MATCH'
+        FOUND_CASE_INSENSITIVE = 'FOUND_CASE_INSENSITIVE'
+
+        MISSING_ON_FILESYSTEM = 'MISSING_ON_FILESYSTEM'
+        PARENT_DIRECTORY_NOT_FOUND = 'PARENT_DIRECTORY_NOT_FOUND'
+
+        NO_PATH_IN_DATABASE = 'NO_PATH_IN_DATABASE'
+
+        EXTRA_ON_FILE_SYSTEM = 'EXTRA_ON_FILE_SYSTEM'
+        FILESYSTEM_SCAN_ERROR = 'FILESYSTEM_SCAN_ERROR'
+
     ALLOWED_ZONES = ['dev', 'dev4', 'uat1', 'uat9', 'prd'] 
 
     
@@ -159,7 +171,7 @@ class CompareFile():
                 file_lower = filename.lower()
                 if file_lower in self.ignore_literals:
                     continue
-                if any(file_lower.endswith(ext) for ext in self.ignore_literals if ext.startwith('.')):
+                if any(file_lower.endswith(ext) for ext in self.ignore_literals if ext.startswith('.')):
                     continue
                 is_ignored_by_pattern = False
                 for pattern in self.ignore_patterns:
@@ -191,32 +203,35 @@ class CompareFile():
         return df.assign(**{new_col_name: new_column})
     
     def _check_file_status(self, db_filepath: str, dir_cache: Dict) -> Tuple[str, Union[str , None]]:
+        S = self.FileStatus
+
         if not db_filepath or pd.isna(db_filepath):
-            return 'NO_PATH_IN_DB', None
+            return S.NO_PATH_IN_DATABASE, None
         
         if os.path.exists(db_filepath):
-            return 'FOUND', db_filepath
+            return S.FOUND_EXACT_MATCH, db_filepath
         
         try:
-            directory = str(Path(db_filepath).parent)
-            filename_to_find = Path(db_filepath).name
+            path_obj = Path(db_filepath)
+            directory = path_obj.parent.as_posix()
+            filename_to_find = path_obj.name
 
-            if directory not in dir_cache:
-                return 'NOT FOUND', None
+            if not os.path.isdir(directory):
+                return S.PARENT_DIRECTORY_NOT_FOUND, None
             
-            filename_lookup = dir_cache[directory]
+            filename_lookup = dir_cache.get(directory, {})
 
             if filename_to_find.lower() in filename_lookup:
                 actual_filename = filename_lookup[filename_to_find.lower()]
                 found_path = f"{directory}/{actual_filename}"
-                return 'FOUND_CASE_INSENSITIVE', found_path
+                return S.FOUND_CASE_INSENSITIVE, found_path
+            
+            return S.MISSING_ON_FILESYSTEM, None
             
         except Exception as e:
-            self.logger.error(f"Error checking path '{db_filepath}': {e}")
-            return 'ERROR_CHECKING', None
-        
-        return 'NOTFOUND', None
-
+            self.logger.error(f"Error during filesystem check for path '{db_filepath}': {e}", exc_info=True)
+            return S.FILESYSTEM_SCAN_ERROR, None
+    
     def prepare_dataframe(self):
         raise NotImplementedError("Subclasses must implement the prepare_dataframe method.")
     
@@ -280,7 +295,7 @@ class CompareFile():
             self.logger.info(f"Found {len(extra_files_on_fs)} extra files.")
             extra_files_df = pd.DataFrame({
                 'filepath_to_check': list(extra_files_on_fs),
-                'status': 'EXTRA_ON_FS',
+                'status': self.FileStatus.EXTRA_ON_FILE_SYSTEM,
                 'source_column': 'FILESYSTEM'
             })
             final_report_df = pd.concat([melted_df, extra_files_df], ignore_index=True)
@@ -428,7 +443,7 @@ class CompareOutbound(CompareFile):
         df = self._build_full_file_name(df, 'obd_header_full_name', 'obd_hql_path', 'header_file_nm')
         df = self._build_full_file_name(df, 'obd_footer_full_name', 'obd_hql_path', 'footer_file_nm')
         df = self._build_full_file_name(df, 'obd_fix_len_full_name', 'obd_hql_path', 'fix_len_config_file_nm')
-        df['obd_special_script_full_name'] = df['special_script_full_path'].fillna('')
+        df['obd_special_script_full_name'] = df['special_script_full_path'].fillna(None)
 
         col_to_drop = ['obd_hql_path','obd_hql_nm', 'header_file_nm', 'footer_file_nm',
                        'fix_len_config_file_nm', 'special_script_full_path']
