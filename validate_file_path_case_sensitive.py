@@ -16,13 +16,11 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
-# Gracefully import optional dependencies
 try:
     import openpyxl
 except ImportError:
     pass
 
-# Gracefully import required dependencies and provide clear error messages
 try:
     import pymysql
     from pymysql.err import ProgrammingError
@@ -36,7 +34,6 @@ except ImportError:
     print("FATAL ERROR: 'psutil' library not found. Please install it using 'pip install psutil'")
     exit(1)
 
-# Handle different locations of DatabaseError in older/newer pandas
 try:
     from pandas.errors import DatabaseError as PandasDatabaseError
 except ImportError:
@@ -47,17 +44,21 @@ except ImportError:
 # --- Configuration & Custom Exceptions ---
 # ==============================================================================
 ENTITY_CONFIG_MAP = {
-    'ks': {
-        'zones': ['dev', 'dev1', 'dev3', 'dev4', 'dev7', 'dev9', 'prd', 'sit', 'sit1', 'sit9', 'uat', 'uat1', 'uat9'],
-        'env_file': "/nfs/msa/dapscripts/ks/fwk/prd/config/env_config"
+    'ksdtm': {
+        'zones': ['prd'],
+        'env_file': "/nfs/msa/dapscripts/ksdtm/fwk/prd/config/env_config"
     },
     'ksfr': {
-        'zones': ['dev', 'dev5', 'dev6', 'prd', 'sit', 'uat', 'uat2'],
+        'zones': ['prd'],
         'env_file': "/nfs/msa/dapscripts/ksfr/fwk/prd/config/env_config"
     },
     'ka': {
-        'zones': ['dev1', 'dev', 'prd', 'sit', 'uat'],
+        'zones': ['prd'],
         'env_file': "/nfs/msa/dapscripts/ka/fwk/prd/config/env_config"
+    },    
+    'ks': {
+        'zones': ['prd'],
+        'env_file': "/nfs/msa/dapscripts/ks/fwk/prd/config/env_config"
     }
 }
 
@@ -242,7 +243,7 @@ class CompareFile:
             if e.__cause__ and isinstance(e.__cause__, ProgrammingError) and e.__cause__.args[0] == 1146:
                 raise TableNotFoundError(str(e)) from e
             else:
-                self.logger.error(f"DATABASE ERROR occurred: {e}", exc_info=False) # No need for full traceback for this
+                self.logger.error(f"DATABASE ERROR occurred: {e}", exc_info=False)
                 return pd.DataFrame()
         except Exception as generic_error:
             self.logger.error(f"UNEXPECTED ERROR during query: {generic_error}", exc_info=True)
@@ -328,7 +329,11 @@ class CompareFile:
         extra_files_on_fs = all_actual_files_in_dirs - all_fs_paths_found
         if extra_files_on_fs:
             self.logger.info(f"Found {len(extra_files_on_fs)} extra files.")
-            extra_files_df = pd.DataFrame({'filepath_to_check': list(extra_files_on_fs), 'status': self.FileStatus.EXTRA_ON_FILE_SYSTEM, 'source_column': 'FILESYSTEM'})
+            extra_files_df = pd.DataFrame({
+                'actual_fs_path': list(extra_files_on_fs), 
+                'status': self.FileStatus.EXTRA_ON_FILE_SYSTEM, 
+                'source_column': 'FILESYSTEM',
+                'filepath_to_check': pd.NA})
             return pd.concat([melted_df, extra_files_df], ignore_index=True)
         else:
             self.logger.info("No extra files found on the filesystem.")
